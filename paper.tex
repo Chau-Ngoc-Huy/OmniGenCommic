@@ -19,7 +19,7 @@
 
 \begin{document}
 
-\title{Reproduce OmniGen for Image Generation}
+\title{OmniGen: Evaluation Against SOTA Image Generation Models}
 
 \author{\IEEEauthorblockN{Huy Ngoc Chau \orcidlink{0009-0004-3554-059X}}
 \IEEEauthorblockA{\textit{University of Science} \\
@@ -31,13 +31,19 @@ Ho Chi Minh City, Vietnam \\
 \IEEEauthorblockA{\textit{University of Science} \\
 \textit{Viet Nam National University}\\
 Ho Chi Minh City, Vietnam \\
-25C1102010@student.hcmus.edu.vn \\}
+25C1102003@student.hcmus.edu.vn \\}
 }
 
 \maketitle
 
 \begin{abstract}
-This paper presents a practical reproduction study of OmniGen, a unified diffusion transformer for general image generation. Instead of treating text-to-image, editing, subject-driven generation, and visual-condition generation as separate pipelines, OmniGen models them in a single multimodal instruction format. We reproduce the core inference workflow from the original paper and document an implementation protocol that can be reused for engineering and research. The reproduction focuses on three aspects: architecture understanding, task unification, and evaluation reproducibility. We summarize required components (VAE + transformer), the mixed attention design, and the rectified-flow training objective, then provide a reproducible setup for benchmarking on representative tasks. The resulting report clarifies why OmniGen can solve complex image-generation tasks end-to-end without external plugins, and highlights practical constraints such as text rendering artifacts and high-compute requirements. This work serves as a reproducible reference for future studies on unified image generation systems.
+OmniGen is a unified image generation model designed to handle multiple image generation tasks within a single framework. It is among the first approaches to jointly support diverse tasks, while achieving performance comparable to task-specific state-of-the-art (SOTA) models.
+
+Motivated by these claims, we conduct a systematic evaluation of OmniGen against recent SOTA models across three representative tasks: text-to-image generation, instruction-based image editing, and style transfer. Our evaluation considers both task-specific performance metrics and computational efficiency.
+
+Experimental results, consistent with those reported in the original work, indicate that OmniGen achieves competitive performance in general image generation tasks. However, it shows limitations in tasks requiring precise control and fine-grained manipulation, where specialized models still outperform the unified approach.
+
+These findings highlight the trade-offs between generality and task-specific performance, suggesting that while unified models offer flexibility and simplicity, specialized architectures remain essential for achieving optimal results in individual tasks.
 \end{abstract}
 
 \begin{IEEEkeywords}
@@ -47,9 +53,9 @@ OmniGen, Reproducibility, Unified Image Generation, Diffusion Transformer, Multi
 \section{Introduction}
 \label{sec:introduction}
 
-Recent diffusion models deliver high-quality text-to-image results, but practical workflows are still fragmented across task-specific add-ons and custom preprocessing. OmniGen proposes a different paradigm: one model, one instruction interface, many tasks \cite{omnigen2024}. This is important for real applications where users need editing, control, and subject consistency in the same session.
+% Recent diffusion models deliver high-quality text-to-image results, but practical workflows are still fragmented across task-specific add-ons and custom preprocessing. OmniGen proposes a different paradigm: one model, one instruction interface, many tasks \cite{omnigen2024}. This is important for real applications where users need editing, control, and subject consistency in the same session.
 
-This paper targets reproducibility. Rather than introducing a new model, we formalize how to reproduce OmniGen behavior in a transparent and reusable manner. Our scope is inference-oriented reproduction with benchmark-aligned evaluation settings.
+% This paper targets reproducibility. Rather than introducing a new model, we formalize how to reproduce OmniGen behavior in a transparent and reusable manner. Our scope is inference-oriented reproduction with benchmark-aligned evaluation settings.
 
 % Our contributions are:
 % \begin{enumerate}
@@ -63,9 +69,11 @@ This paper targets reproducibility. Rather than introducing a new model, we form
 \section{Related Work}
 \label{sec:related_work}
 
-Latent diffusion models such as SDXL are strong generators but usually depend on separate encoders and optional modules for different conditions \cite{rombach2022high}. More recent large diffusion transformers improve quality at scale, e.g., SD3 \cite{sd3}. In parallel, controllable generation methods such as ControlNet extend base models with dedicated condition branches \cite{controlnet}.
+% Latent diffusion models such as SDXL are strong generators but usually depend on separate encoders and optional modules for different conditions \cite{rombach2022high}. More recent large diffusion transformers improve quality at scale, e.g., SD3 \cite{sd3}. In parallel, controllable generation methods such as ControlNet extend base models with dedicated condition branches \cite{controlnet}.
 
-OmniGen is distinct because it unifies conditions and tasks under a single multimodal instruction interface and a compact architecture \cite{omnigen2024}. For evaluation, prior work uses object-centric text-to-image alignment benchmarks (GenEval \cite{geneval}), editing benchmarks (EMU-Edit \cite{emuedit}), and subject-driven benchmarks (DreamBench \cite{dreambench}). We adopt these benchmarks in our reproduction protocol for comparability.
+% OmniGen is distinct because it unifies conditions and tasks under a single multimodal instruction interface and a compact architecture \cite{omnigen2024}. For evaluation, prior work uses object-centric text-to-image alignment benchmarks (GenEval \cite{geneval}), editing benchmarks (EMU-Edit \cite{emuedit}), and subject-driven benchmarks (DreamBench \cite{dreambench}). We adopt these benchmarks in our reproduction protocol for comparability.
+
+% Hi, this is a simple test.
 
 \section{Method}
 \label{sec:method}
@@ -152,6 +160,9 @@ OmniGen is distinct because it unifies conditions and tasks under a single multi
 \section{Conclusion}
 \label{sec:conclusion}
 % This paper provides a reproducible write-up for OmniGen-based image generation. We distilled the architecture, training/inference choices, and benchmark settings required to replicate the behavior of a unified image generator. The study indicates that OmniGen offers a strong trade-off between simplicity and capability across heterogeneous tasks. Future work includes full training reproduction on the original X2I scale, stronger text rendering, and process-level supervision for step-by-step image generation.
+
+% Keep bibliography non-empty even when all in-text citations are commented out.
+\nocite{omnigen2024}
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}
