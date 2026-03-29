@@ -11,124 +11,147 @@
 \usepackage{graphicx}
 \usepackage{textcomp}
 \usepackage{xcolor}
+\usepackage{hyperref}
+\usepackage{orcidlink}
+\hypersetup{hidelinks}
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 
 \begin{document}
 
-\title{Generating Story Illustrations with OmniGen}
+\title{Reproduce OmniGen for Image Generation}
 
-\author{\IEEEauthorblockN{Huy Ngoc Chau}
+\author{\IEEEauthorblockN{Huy Ngoc Chau \orcidlink{0009-0004-3554-059X}}
 \IEEEauthorblockA{\textit{University of Science} \\
 \textit{Viet Nam National University}\\
 Ho Chi Minh City, Vietnam \\
-email@example.com}
+25C1100828@student.hcmus.edu.vn \\}
+\and
+\IEEEauthorblockN{Minh Thang Hoang \orcidlink{0009-0004-3554-059X}}
+\IEEEauthorblockA{\textit{University of Science} \\
+\textit{Viet Nam National University}\\
+Ho Chi Minh City, Vietnam \\
+25C1102010@student.hcmus.edu.vn \\}
 }
 
 \maketitle
 
 \begin{abstract}
-As generative AI advances, creating consistent story illustrations remains a significant challenge. Traditional text-to-image models often struggle to maintain character identity and narrative coherence across a sequence of images. In this paper, we propose a novel approach using OmniGen, a unified image generation framework, to synthesize high-quality story illustrations. Our method leverages the in-context learning capabilities of OmniGen to preserve visual semantics and character consistency without the need for complex fine-tuning or external adapters. We demonstrate that our approach can generate coherent narratives where characters maintain their attire and appearance across diverse scenes. Experimental results show that our pipeline outperforms baseline diffusion models in both identity preservation and text-image alignment metrics. This work contributes a scalable solution for automated visual storytelling.
+This paper presents a practical reproduction study of OmniGen, a unified diffusion transformer for general image generation. Instead of treating text-to-image, editing, subject-driven generation, and visual-condition generation as separate pipelines, OmniGen models them in a single multimodal instruction format. We reproduce the core inference workflow from the original paper and document an implementation protocol that can be reused for engineering and research. The reproduction focuses on three aspects: architecture understanding, task unification, and evaluation reproducibility. We summarize required components (VAE + transformer), the mixed attention design, and the rectified-flow training objective, then provide a reproducible setup for benchmarking on representative tasks. The resulting report clarifies why OmniGen can solve complex image-generation tasks end-to-end without external plugins, and highlights practical constraints such as text rendering artifacts and high-compute requirements. This work serves as a reproducible reference for future studies on unified image generation systems.
 \end{abstract}
 
 \begin{IEEEkeywords}
-Story Generation, OmniGen, Consistency, Multimodal Generation, Deep Learning
+OmniGen, Reproducibility, Unified Image Generation, Diffusion Transformer, Multimodal Generation
 \end{IEEEkeywords}
 
 \section{Introduction}
 \label{sec:introduction}
 
-\subsection{Overview}
-The rapid evolution of Generative Adversarial Networks (GANs) and more recently, Diffusion Models \cite{rombach2022high}, has revolutionized the field of computer vision. Text-to-image generation has moved from low-resolution outputs to photorealistic synthesis. One of the most compelling applications of this technology is automated story illustration, where a sequence of images is generated to visually narrate a provided text. This capability has profound implications for digital entertainment, education, and content creation.
+Recent diffusion models deliver high-quality text-to-image results, but practical workflows are still fragmented across task-specific add-ons and custom preprocessing. OmniGen proposes a different paradigm: one model, one instruction interface, many tasks \cite{omnigen2024}. This is important for real applications where users need editing, control, and subject consistency in the same session.
 
-\subsection{Related Approaches}
-Currently, models like Stable Diffusion XL (SDXL) and DALLE-3 dominate the landscape. While they excel at single-image generation, they often fail in sequential generation tasks. Techniques such as StoryDiffusion \cite{storydiffusion} attempt to mitigate this by introducing attention-based consistency mechanisms. However, most existing solutions require either heavy fine-tuning (e.g., Dreambooth, LoRA) or complex multi-stage pipelines to maintain character identity.
+This paper targets reproducibility. Rather than introducing a new model, we formalize how to reproduce OmniGen behavior in a transparent and reusable manner. Our scope is inference-oriented reproduction with benchmark-aligned evaluation settings.
 
-\subsection{Motivation}
-Our motivation stems from a critical limitation observed in preliminary experiments: character drift. When prompting standard diffusion models with a sequence of story captions, the protagonist's appearance—facial features, clothing, and style—often changes drastically between frames. For instance, a character described as ``wearing a red coat'' in the first scene might appear with a blue jacket in the next, breaking the narrative immersion. This inconsistency hinders the practical deployment of AI for professional storytelling.
+% Our contributions are:
+% \begin{enumerate}
+%     \item A concise technical summary of OmniGen components that matter most for reproduction: multimodal tokenization, mixed attention, and rectified-flow inference.
+%     \item A step-by-step reproduction protocol covering environment setup, prompt formatting, guidance scales, and multi-task evaluation.
+%     \item A benchmark-oriented result template that aligns reproduced observations with reported OmniGen outcomes on GenEval, image editing, subject-driven generation, and visual conditions.
+% \end{enumerate}
 
-\subsection{Objective}
-The primary objective of this research is to develop a robust pipeline for generating story illustrations that are both semantically aligned with the text and visually consistent across the narrative. Specifically, we aim to utilize the unified architecture of OmniGen \cite{omnigen2024} to solve the identity preservation problem inherent in long-form generation.
-
-\subsection{Contribution}
-Our main contributions are as follows:
-\begin{enumerate}
-    \item We propose a new workflow utilizing OmniGen's in-context generation capabilities for sequential story illustration.
-    \item We demonstrate that interleaved text-image inputs can effectively serve as reference anchors, preserving character identity without fine-tuning.
-    \item We provide a comparative analysis against standard diffusion baselines, highlighting improvements in consistency and visual quality.
-\end{enumerate}
-
-\subsection{Paper Structure}
-The remainder of this paper is organized as follows. Section \ref{sec:related_work} reviews the state-of-the-art in story generation and consistency mechanisms. Section \ref{sec:method} details our proposed methodology using OmniGen. Section \ref{sec:experiments} presents our experimental setup, dataset description, and evaluation results. Finally, Section \ref{sec:conclusion} concludes the paper and suggests directions for future research.
+% The rest of this paper is organized as follows. Section \ref{sec:related_work} reviews related foundations. Section \ref{sec:method} describes OmniGen and the reproduction protocol. Section \ref{sec:experiments} presents the evaluation setup and reproduction-oriented results. Section \ref{sec:conclusion} concludes with limitations and future extensions.
 
 \section{Related Work}
 \label{sec:related_work}
 
-\subsection{Model Architecture}
-Recent advancements in text-to-image synthesis leverage Latent Diffusion Models (LDMs) \cite{rombach2022high}. These models operate in a compressed latent space to generate high-fidelity images. However, standard LDMs treat each generation step independently. New architectures like OmniGen \cite{omnigen2024} propose a unified approach, treating image generation as a sequence-to-sequence task similar to Large Language Models (LLMs). This allows for multi-modal inputs (images and text interleaved), which is crucial for maintaining context in stories.
+Latent diffusion models such as SDXL are strong generators but usually depend on separate encoders and optional modules for different conditions \cite{rombach2022high}. More recent large diffusion transformers improve quality at scale, e.g., SD3 \cite{sd3}. In parallel, controllable generation methods such as ControlNet extend base models with dedicated condition branches \cite{controlnet}.
 
-\subsection{Dataset}
-Datasets for story generation typically consist of image-caption pairs or sequential visual narratives. Notable datasets include StorySalon and VIST (Visual Storytelling). These datasets provide the ground truth for evaluating how well a model can capture narrative flow. In our work, we focus on generating illustrations from textual story descriptions, evaluating the output against consistency metrics rather than just reconstruction loss \cite{maharana2022storydall}.
-
-\subsection{Consistency Mechanisms}
-Maintaining consistency is the central challenge in story generation. Previous works have utilized methods like Textual Inversion and Subject-Driven Generation to anchor character identities. StoryDiffusion \cite{storydiffusion} introduced ``Consistent Self-Attention'' to share attention maps across generated images. Unlike these methods, which often require specific architectural tweaks, our approach relies on the inherent in-context learning ability of the unified OmniGen model.
+OmniGen is distinct because it unifies conditions and tasks under a single multimodal instruction interface and a compact architecture \cite{omnigen2024}. For evaluation, prior work uses object-centric text-to-image alignment benchmarks (GenEval \cite{geneval}), editing benchmarks (EMU-Edit \cite{emuedit}), and subject-driven benchmarks (DreamBench \cite{dreambench}). We adopt these benchmarks in our reproduction protocol for comparability.
 
 \section{Method}
 \label{sec:method}
 
-We propose a method centered around the OmniGen framework. Unlike traditional diffusion pipelines that require separate encoding for text and control signals (like ControlNet), OmniGen accepts a unified stream of multimodal tokens.
+\subsection{OmniGen Architecture Summary}
+% OmniGen consists of two main modules: a frozen VAE and a transformer backbone initialized from Phi-3 \cite{phi3,omnigen2024}. Text is tokenized with the language tokenizer, while images are mapped to latent patches and inserted into the token stream with special image boundary tokens. This design removes separate condition encoders and keeps the pipeline simple.
 
-\subsection{Contextual Generation}
-Our core strategy is ``Contextual Anchoring.'' For a story sequence $S = \{T_1, T_2, ..., T_n\}$, generating the image $I_k$ for timestamp $k$ involves conditioning the model not just on text $T_k$, but also on the previously generated image $I_{k-1}$ (or the first reference image $I_1$).
-\begin{equation}
-    I_k = \text{OmniGen}(T_k, I_1)
-\end{equation}
-By feeding the initial character portrait $I_1$ as a visual prompt into the generation of subsequent scenes, we force the model to attend to the visual features of the character (hair, clothes, face) while adhering to the new semantic instruction in $T_k$ (e.g., ``running'', ``eating'').
+% OmniGen uses mixed attention: causal attention over the full sequence, with bidirectional attention inside each image token block. This improves latent denoising quality versus plain causal masking for visual tokens.
 
-\subsection{Pipeline Overview}
-1. \textbf{Character Initialization}: Generate the first image based on a detailed character description.
-2. \textbf{Sequential Generation}: For each subsequent scene, construct a prompt that includes the current scene description and the reference image of the character.
-3. \textbf{Post-processing}: (Optional) Upscaling or refinement.
+\subsection{Training Objective}
+% The model follows rectified flow training \cite{omnigen2024,sd3}. At diffusion time $t$, noisy latent is:
+% \begin{equation}
+% \mathbf{x}_t = t\mathbf{x} + (1-t)\boldsymbol{\epsilon}, \quad \boldsymbol{\epsilon} \sim \mathcal{N}(0,1)
+% \end{equation}
+% and velocity prediction loss is:
+% \begin{equation}
+% \mathcal{L} = \mathbb{E}\left[\left\|(\mathbf{x}-\boldsymbol{\epsilon}) - v_\theta(\mathbf{x}_t,t,c)\right\|_2^2\right].
+% \end{equation}
+% For editing tasks, OmniGen introduces region-weighted loss to avoid shortcut copying from input image to output image \cite{omnigen2024}.
 
-This approach eliminates the need for per-character fine-tuning, making it highly efficient for generating diverse stories on the fly.
+\subsection{Reproduction Protocol}
+% We reproduce OmniGen behavior in four stages:
+% \begin{enumerate}
+%     \item \textbf{Environment and Assets}: use official checkpoint, official tokenizer, and SDXL VAE configuration.
+%     \item \textbf{Prompt Standardization}: convert all tasks into a single interleaved text-image instruction format.
+%     \item \textbf{Inference Settings}: 50 sampling steps, classifier-free guidance, text guidance scale $2.5$, image guidance scale $1.6$ (editing: $2.0$), matching reported setup \cite{omnigen2024}.
+%     \item \textbf{Task Groups}: text-to-image, instruction-based image editing, subject-driven generation, and visual-condition generation.
+% \end{enumerate}
+
+% The core reproduction principle is to preserve the original instruction format. Instead of switching models per task, we only alter prompt content and input images.
 
 \section{Experiments}
 \label{sec:experiments}
 
 \subsection{Experimental Setup}
-We evaluated our method using a set of 50 short stories generated by GPT-4, covering various genres (fantasy, sci-fi, slice of life). We compared our OmniGen-based approach against a standard Stable Diffusion XL (SDXL) baseline.
+% We follow benchmark settings from prior studies to keep evaluation comparable. For text-to-image, we use GenEval \cite{geneval}. For editing quality, we follow EMU-Edit \cite{emuedit} with CLIP-based instruction and image similarity metrics \cite{radford2021learning}. For subject-driven generation, we use DreamBench \cite{dreambench}. For visual conditions, we compare against ControlNet-style settings on segmentation, edge, and depth conditions \cite{controlnet}.
 
 \subsection{Evaluation Metrics}
-We employed two primary automated metrics:
-\begin{itemize}
-    \item \textbf{C-CLIP (Consistency Score)}: Measures the visual similarity between consecutive frames in a story, specifically focusing on character identity. High scores indicate better consistency.
-    \item \textbf{T-CLIP (Text Alignment)}: Measures the semantic similarity between the generated image and the story caption \cite{radford2021learning}.
-\end{itemize}
+% We report:
+% \begin{itemize}
+%     \item \textbf{GenEval overall score} for object-centric text-image alignment.
+%     \item \textbf{CLIP-T} and \textbf{CLIP-I} for editing and subject-driven tasks.
+%     \item \textbf{Condition similarity metrics} (mIoU/F1/SSIM/RMSE) for controllable generation.
+% \end{itemize}
 
 \subsection{Results}
-Table \ref{tab1} shows the quantitative results. Our method achieves a significantly higher C-CLIP score compared to the baseline, indicating superior identity preservation.
+% Table \ref{tab1} summarizes key reference results reported by OmniGen and used as reproduction targets. These numbers show that a unified model can remain competitive with larger or task-specialized systems.
 
-\begin{table}[htbp]
-\caption{Quantitative Comparison of Consistency and Alignment}
-\begin{center}
-\begin{tabular}{|c|c|c|}
-\hline
-\textbf{Method} & \textbf{C-CLIP (Identity)} & \textbf{T-CLIP (Text)}\\
-\hline
-SDXL (Baseline) & 0.62 & 0.28 \\
-\hline
-\textbf{Ours (OmniGen)} & \textbf{0.78} & \textbf{0.31} \\
-\hline
-\end{tabular}
-\label{tab1}
-\end{center}
-\end{table}
+% \begin{table}[htbp]
+% \caption{Representative Results Reported for OmniGen and Used as Reproduction Targets}
+% \begin{center}
+% \begin{tabular}{|c|c|c|}
+% \hline
+% \textbf{Benchmark} & \textbf{Metric} & \textbf{OmniGen Value}\\
+% \hline
+% GenEval & Overall & 0.70 \\
+% \hline
+% EMU-Edit & CLIP-T / CLIP-I & 0.231 / 0.829 \\
+% \hline
+% DreamBench & CLIP-T / CLIP-I & 0.315 / 0.801 \\
+% \hline
+% Control Condition & Seg. mIoU & 40.06 \\
+% \hline
+% \end{tabular}
+% \label{tab1}
+% \end{center}
+% \end{table}
 
-Qualitative analysis reveals that while SDXL often changes the character's clothing or hair color between scenes, OmniGen maintains these details accurately due to the direct visual conditioning.
+% In qualitative reproduction, the unified prompting format consistently enables:
+% \begin{itemize}
+%     \item end-to-end image editing without extra plugin models,
+%     \item subject transfer from one or multiple reference images,
+%     \item visual-condition following from plain instruction plus reference image.
+% \end{itemize}
+
+\subsection{Discussion}
+% The reproduction confirms the practical value of OmniGen's design: one model can replace multi-model orchestration in many cases. However, two limitations remain visible and should be stated for reproducibility fairness:
+% \begin{itemize}
+%     \item text rendering is still imperfect,
+%     \item fine-grained anatomy and unseen condition maps can fail.
+% \end{itemize}
+% These observations are consistent with the original limitations report \cite{omnigen2024}.
 
 \section{Conclusion}
 \label{sec:conclusion}
-In this paper, we presented a novel pipeline for generating consistent story illustrations using OmniGen. By leveraging unified multimodal generation and context anchoring, we addressed the critical issue of character drift. Our experimental results confirm that this approach yields higher consistency and alignment than standard text-to-image baselines. Future work will explore generating multi-character interactions and longer narrative arcs.
+% This paper provides a reproducible write-up for OmniGen-based image generation. We distilled the architecture, training/inference choices, and benchmark settings required to replicate the behavior of a unified image generator. The study indicates that OmniGen offers a strong trade-off between simplicity and capability across heterogeneous tasks. Future work includes full training reproduction on the original X2I scale, stronger text rendering, and process-level supervision for step-by-step image generation.
 
 \bibliographystyle{IEEEtran}
 \bibliography{references}
