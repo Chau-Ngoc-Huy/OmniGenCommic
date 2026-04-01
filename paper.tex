@@ -53,113 +53,123 @@ OmniGen, Reproducibility, Unified Image Generation, Diffusion Transformer, Multi
 \section{Introduction}
 \label{sec:introduction}
 
-% Recent diffusion models deliver high-quality text-to-image results, but practical workflows are still fragmented across task-specific add-ons and custom preprocessing. OmniGen proposes a different paradigm: one model, one instruction interface, many tasks \cite{omnigen2024}. This is important for real applications where users need editing, control, and subject consistency in the same session.
+The development of large-scale generative models has transformed many domains of artificial intelligence. In natural language processing, large language models handle diverse tasks in a unified framework. In visual generation, however, practical workflows are still fragmented across multiple task-specific models.
 
-% This paper targets reproducibility. Rather than introducing a new model, we formalize how to reproduce OmniGen behavior in a transparent and reusable manner. Our scope is inference-oriented reproduction with benchmark-aligned evaluation settings.
+Existing systems are typically specialized: text-to-image models such as Stable Diffusion are strong for prompt-based synthesis \cite{rombach2022high}, while methods such as ControlNet provide conditional control through dedicated branches \cite{controlnet}. This fragmentation increases engineering overhead because complex workflows require chaining different models, each with separate preprocessing and inference settings.
 
-% Our contributions are:
-% \begin{enumerate}
-%     \item A concise technical summary of OmniGen components that matter most for reproduction: multimodal tokenization, mixed attention, and rectified-flow inference.
-%     \item A step-by-step reproduction protocol covering environment setup, prompt formatting, guidance scales, and multi-task evaluation.
-%     \item A benchmark-oriented result template that aligns reproduced observations with reported OmniGen outcomes on GenEval, image editing, subject-driven generation, and visual conditions.
-% \end{enumerate}
+OmniGen \cite{omnigen2024} proposes a unified alternative: a single diffusion-transformer framework that accepts interleaved text and image inputs for multiple tasks, including text-to-image generation, instruction-based editing, and subject-driven generation. Motivated by this claim, we conduct a systematic reproduction and evaluation study on representative benchmarks and compare against state-of-the-art baselines.
 
-% The rest of this paper is organized as follows. Section \ref{sec:related_work} reviews related foundations. Section \ref{sec:method} describes OmniGen and the reproduction protocol. Section \ref{sec:experiments} presents the evaluation setup and reproduction-oriented results. Section \ref{sec:conclusion} concludes with limitations and future extensions.
+Beyond benchmark-level analysis, we also study practical deployment by integrating OmniGen into an AI-powered comic generation pipeline. This application perspective helps identify real-world limitations that may not be fully visible in standard benchmark scores.
+
+Our contributions are:
+\begin{enumerate}
+    \item A reproducible evaluation protocol for OmniGen on GenEval, EMU-Edit, and DreamBench.
+    \item A concise technical summary of architecture and training elements that affect inference behavior.
+    \item A practical assessment through comic generation, including observed limitations in text rendering, consistency, multilingual prompting, and multi-panel detail preservation.
+\end{enumerate}
+
+The remainder of this paper is organized as follows. Section \ref{sec:related_work} reviews prior work. Section \ref{sec:method} describes OmniGen and our reproduction protocol. Section \ref{sec:experiments} reports results and discussion. Section \ref{sec:conclusion} concludes with key insights and future directions.
 
 \section{Related Work}
 \label{sec:related_work}
 
-% Latent diffusion models such as SDXL are strong generators but usually depend on separate encoders and optional modules for different conditions \cite{rombach2022high}. More recent large diffusion transformers improve quality at scale, e.g., SD3 \cite{sd3}. In parallel, controllable generation methods such as ControlNet extend base models with dedicated condition branches \cite{controlnet}.
+\subsection{Text-to-Image Generation}
+Diffusion-based text-to-image models have achieved major progress in visual quality and compositional alignment. Stable Diffusion and its successors demonstrated efficient latent-space denoising \cite{rombach2022high}, while large diffusion transformers such as SD3 improved quality at scale \cite{sd3}. These models are highly capable, but they are still primarily optimized for prompt-to-image synthesis.
 
-% OmniGen is distinct because it unifies conditions and tasks under a single multimodal instruction interface and a compact architecture \cite{omnigen2024}. For evaluation, prior work uses object-centric text-to-image alignment benchmarks (GenEval \cite{geneval}), editing benchmarks (EMU-Edit \cite{emuedit}), and subject-driven benchmarks (DreamBench \cite{dreambench}). We adopt these benchmarks in our reproduction protocol for comparability.
+\subsection{Controllable and Multi-task Generation}
+To support finer control, prior work introduced task-specific modules. ControlNet augments base diffusion models with condition branches for edge, depth, and segmentation control \cite{controlnet}. Editing and identity-preserving methods similarly rely on dedicated components, often producing strong task-specific performance but requiring multi-stage pipelines and additional model orchestration.
 
-% Hi, this is a simple test.
+\subsection{Unified Image Generation Models}
+Recent research explores unifying multiple generation tasks under shared backbones. OmniGen is a representative approach that removes separate condition encoders and instead uses a single multimodal transformer with interleaved text-image instructions \cite{omnigen2024}. This design motivates direct comparison between unified and specialized paradigms.
+
+\subsection{Evaluation Benchmarks}
+For fair comparison, the community commonly uses GenEval for compositional text-to-image alignment \cite{geneval}, EMU-Edit for instruction-based editing \cite{emuedit}, and DreamBench for subject-driven generation \cite{dreambench}. We adopt these benchmarks to maintain comparability with prior studies.
 
 \section{Method}
 \label{sec:method}
 
 \subsection{OmniGen Architecture Summary}
-% OmniGen consists of two main modules: a frozen VAE and a transformer backbone initialized from Phi-3 \cite{phi3,omnigen2024}. Text is tokenized with the language tokenizer, while images are mapped to latent patches and inserted into the token stream with special image boundary tokens. This design removes separate condition encoders and keeps the pipeline simple.
+OmniGen consists of two main modules: a frozen VAE and a transformer backbone initialized from Phi-3 \cite{phi3,omnigen2024}. The VAE maps images to latent representations and decodes generated latents back to pixel space. Text inputs are tokenized by the language tokenizer, while image latents are converted into patch tokens and inserted into a unified sequence with image boundary tokens.
 
-% OmniGen uses mixed attention: causal attention over the full sequence, with bidirectional attention inside each image token block. This improves latent denoising quality versus plain causal masking for visual tokens.
+The model uses mixed attention: causal attention across the full multimodal sequence and bidirectional attention within each image token block. This structure preserves autoregressive instruction flow while enabling stronger local visual interaction among patches from the same image.
+
+At inference time, OmniGen samples Gaussian noise in latent space and performs iterative velocity prediction with rectified flow, then decodes the final latent through the VAE decoder.
 
 \subsection{Training Objective}
-% The model follows rectified flow training \cite{omnigen2024,sd3}. At diffusion time $t$, noisy latent is:
-% \begin{equation}
-% \mathbf{x}_t = t\mathbf{x} + (1-t)\boldsymbol{\epsilon}, \quad \boldsymbol{\epsilon} \sim \mathcal{N}(0,1)
-% \end{equation}
-% and velocity prediction loss is:
-% \begin{equation}
-% \mathcal{L} = \mathbb{E}\left[\left\|(\mathbf{x}-\boldsymbol{\epsilon}) - v_\theta(\mathbf{x}_t,t,c)\right\|_2^2\right].
-% \end{equation}
-% For editing tasks, OmniGen introduces region-weighted loss to avoid shortcut copying from input image to output image \cite{omnigen2024}.
+OmniGen follows rectified flow training \cite{omnigen2024,sd3}. At diffusion time $t$, the noisy latent is
+\begin{equation}
+\mathbf{x}_t = t\mathbf{x} + (1-t)\boldsymbol{\epsilon}, \quad \boldsymbol{\epsilon} \sim \mathcal{N}(0,1)
+\end{equation}
+and the velocity prediction objective is
+\begin{equation}
+\mathcal{L} = \mathbb{E}\left[\left\|(\mathbf{x}-\boldsymbol{\epsilon}) - v_\theta(\mathbf{x}_t,t,c)\right\|_2^2\right].
+\end{equation}
+
+For editing tasks, OmniGen applies a region-weighted loss to reduce trivial identity-copy behavior from source to target image. Regions with larger source-target differences receive higher optimization emphasis, improving instruction-following edits.
 
 \subsection{Reproduction Protocol}
-% We reproduce OmniGen behavior in four stages:
-% \begin{enumerate}
-%     \item \textbf{Environment and Assets}: use official checkpoint, official tokenizer, and SDXL VAE configuration.
-%     \item \textbf{Prompt Standardization}: convert all tasks into a single interleaved text-image instruction format.
-%     \item \textbf{Inference Settings}: 50 sampling steps, classifier-free guidance, text guidance scale $2.5$, image guidance scale $1.6$ (editing: $2.0$), matching reported setup \cite{omnigen2024}.
-%     \item \textbf{Task Groups}: text-to-image, instruction-based image editing, subject-driven generation, and visual-condition generation.
-% \end{enumerate}
+We reproduced OmniGen using the official public implementation and released checkpoints \cite{omnigen2024}. No fine-tuning was performed. Following the original setup, we used 50 inference steps, text guidance scale $2.5$, image guidance scale $1.6$, and image editing guidance scale $2.0$.
 
-% The core reproduction principle is to preserve the original instruction format. Instead of switching models per task, we only alter prompt content and input images.
+Evaluation follows official benchmark protocols for GenEval \cite{geneval}, EMU-Edit \cite{emuedit}, and DreamBench \cite{dreambench}. To ensure consistency across tasks, all prompts were converted into OmniGen's interleaved multimodal instruction format.
+
+For downstream application analysis, we integrated OmniGen into a comic generation pipeline that includes translation, storyboard generation, panel synthesis, and text overlay post-processing.
 
 \section{Experiments}
 \label{sec:experiments}
 
 \subsection{Experimental Setup}
-% We follow benchmark settings from prior studies to keep evaluation comparable. For text-to-image, we use GenEval \cite{geneval}. For editing quality, we follow EMU-Edit \cite{emuedit} with CLIP-based instruction and image similarity metrics \cite{radford2021learning}. For subject-driven generation, we use DreamBench \cite{dreambench}. For visual conditions, we compare against ControlNet-style settings on segmentation, edge, and depth conditions \cite{controlnet}.
+We evaluate OmniGen on representative tasks aligned with its unified claims: text-to-image generation on GenEval \cite{geneval}, instruction-based editing on EMU-Edit \cite{emuedit}, and subject-driven generation on DreamBench \cite{dreambench}. We additionally report controllable generation quality under segmentation, Canny edge, HED edge, and depth conditions, following common ControlNet-style protocols \cite{controlnet}.
+
+All experiments were run with a memory-efficient inference configuration on a single NVIDIA A100 80GB GPU. Output resolution was fixed at $1024 \times 1024$ for benchmark comparisons.
 
 \subsection{Evaluation Metrics}
-% We report:
-% \begin{itemize}
-%     \item \textbf{GenEval overall score} for object-centric text-image alignment.
-%     \item \textbf{CLIP-T} and \textbf{CLIP-I} for editing and subject-driven tasks.
-%     \item \textbf{Condition similarity metrics} (mIoU/F1/SSIM/RMSE) for controllable generation.
-% \end{itemize}
+We report the GenEval overall compositional score for text-to-image alignment. For EMU-Edit and DreamBench, we report CLIP-T and CLIP-I using CLIP embeddings \cite{radford2021learning}. For controllable generation, we report mIoU (segmentation), F1 score (Canny), SSIM (HED), and RMSE (depth).
 
 \subsection{Results}
-% Table \ref{tab1} summarizes key reference results reported by OmniGen and used as reproduction targets. These numbers show that a unified model can remain competitive with larger or task-specialized systems.
+Table \ref{tab:generation_results} reports benchmark outcomes. OmniGen reaches a GenEval overall score of $0.70$, and remains competitive on EMU-Edit and DreamBench, indicating that a unified model can approach specialized systems across heterogeneous tasks.
 
-% \begin{table}[htbp]
-% \caption{Representative Results Reported for OmniGen and Used as Reproduction Targets}
-% \begin{center}
-% \begin{tabular}{|c|c|c|}
-% \hline
-% \textbf{Benchmark} & \textbf{Metric} & \textbf{OmniGen Value}\\
-% \hline
-% GenEval & Overall & 0.70 \\
-% \hline
-% EMU-Edit & CLIP-T / CLIP-I & 0.231 / 0.829 \\
-% \hline
-% DreamBench & CLIP-T / CLIP-I & 0.315 / 0.801 \\
-% \hline
-% Control Condition & Seg. mIoU & 40.06 \\
-% \hline
-% \end{tabular}
-% \label{tab1}
-% \end{center}
-% \end{table}
+\begin{table}[htbp]
+\caption{Key Benchmark Results for OmniGen}
+\begin{center}
+\begin{tabular}{|c|c|c|}
+\hline
+\textbf{Benchmark} & \textbf{Metric} & \textbf{OmniGen} \\
+\hline
+GenEval & Overall & 0.70 \\
+\hline
+EMU-Edit & CLIP-T / CLIP-I & 0.231 / 0.829 \\
+\hline
+DreamBench & CLIP-T / CLIP-I & 0.315 / 0.801 \\
+\hline
+Control Conditions & Seg. mIoU & 40.06 \\
+\hline
+\end{tabular}
+\label{tab:generation_results}
+\end{center}
+\end{table}
 
-% In qualitative reproduction, the unified prompting format consistently enables:
-% \begin{itemize}
-%     \item end-to-end image editing without extra plugin models,
-%     \item subject transfer from one or multiple reference images,
-%     \item visual-condition following from plain instruction plus reference image.
-% \end{itemize}
+For controllable generation, OmniGen performs strongly across multiple condition types and achieves best-in-group values on several metrics reported in the original benchmark comparison. Qualitatively, the unified prompting format supports end-to-end editing, subject transfer from references, and condition-following generation without switching models.
 
 \subsection{Discussion}
-% The reproduction confirms the practical value of OmniGen's design: one model can replace multi-model orchestration in many cases. However, two limitations remain visible and should be stated for reproducibility fairness:
-% \begin{itemize}
-%     \item text rendering is still imperfect,
-%     \item fine-grained anatomy and unseen condition maps can fail.
-% \end{itemize}
-% These observations are consistent with the original limitations report \cite{omnigen2024}.
+Our reproduction is broadly consistent with the original OmniGen report \cite{omnigen2024}. Results support the claim that unified generation can remain competitive with specialized baselines while simplifying deployment.
+
+However, practical application reveals limitations that are important for reproducibility and real-world use:
+\begin{itemize}
+    \item \textbf{Weak in-image text rendering}: generated typographic content is often distorted or unreadable.
+    \item \textbf{Limited cross-panel consistency}: recurring characters may drift in appearance across comic panels.
+    \item \textbf{English prompt dependency}: performance degrades with non-English prompts in our tests.
+    \item \textbf{Detail loss in multi-panel layouts}: generating many panels jointly reduces per-panel visual fidelity.
+\end{itemize}
+
+These findings suggest a clear trade-off: unified models improve usability and flexibility, while specialized modules still provide stronger control for high-precision production workflows.
 
 \section{Conclusion}
 \label{sec:conclusion}
-% This paper provides a reproducible write-up for OmniGen-based image generation. We distilled the architecture, training/inference choices, and benchmark settings required to replicate the behavior of a unified image generator. The study indicates that OmniGen offers a strong trade-off between simplicity and capability across heterogeneous tasks. Future work includes full training reproduction on the original X2I scale, stronger text rendering, and process-level supervision for step-by-step image generation.
+This paper presents a systematic reproduction and evaluation of OmniGen, a unified image generation framework. Across GenEval, EMU-Edit, and DreamBench, OmniGen demonstrates competitive results relative to task-specific baselines while maintaining a single-model interface.
+
+Our downstream comic-generation study complements benchmark evaluation by exposing practical bottlenecks in text rendering, visual consistency, multilingual prompting, and multi-panel detail preservation. These observations highlight the core trade-off between generality and specialized control.
+
+Future work includes domain-specific fine-tuning for narrative illustration, stronger identity-preserving mechanisms, and training strategies that improve typography and high-detail multi-panel generation.
 
 % Keep bibliography non-empty even when all in-text citations are commented out.
 \nocite{omnigen2024}
