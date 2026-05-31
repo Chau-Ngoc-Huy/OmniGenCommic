@@ -16,6 +16,7 @@
 \usepackage{array}
 \usepackage{hyperref}
 \usepackage{orcidlink}
+\usetikzlibrary{positioning,arrows.meta}
 \hypersetup{hidelinks}
 \def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
     T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
@@ -99,6 +100,10 @@ This section describes OmniGen with the technical depth necessary to reproduce i
 OmniGen is a single-stream multimodal diffusion transformer with two main modules: a frozen VAE inherited from SDXL \cite{podell2023sdxl} and a transformer backbone initialized from Phi-3-mini (3.8B parameters) \cite{phi3}. The VAE encoder $\mathcal{E}$ maps an RGB image $\mathbf{I}\in\mathbb{R}^{H\times W\times 3}$ to a latent $\mathbf{z}=\mathcal{E}(\mathbf{I})\in\mathbb{R}^{h\times w\times c}$ with spatial downsampling factor $8$ and channel dimension $c=4$. After diffusion sampling produces a denoised latent, the decoder $\mathcal{D}$ reconstructs the output image $\hat{\mathbf{I}}=\mathcal{D}(\hat{\mathbf{z}})$.
 
 Text inputs are tokenized by the Phi-3 tokenizer; image latents are patchified into a sequence of $2\times 2$ patch tokens, each linearly projected to the transformer's hidden size, with 2D rotary positional embeddings to preserve spatial structure. Special boundary tokens \texttt{<img>} and \texttt{</img>} mark image regions in the multimodal sequence. The transformer therefore consumes a single interleaved sequence of text tokens and image patch tokens; no task-specific encoder, projector, or routing module is added on top.
+
+Figure~\ref{fig:omnigen_architecture} summarizes the end-to-end data flow from multimodal inputs to the rectified-flow sampler and the frozen SDXL VAE decoder.
+
+\input{omnigen_architecture_figure}
 
 \subsection{Mixed Attention: Causal vs.\ Bidirectional}
 A central architectural choice in OmniGen \cite{omnigen2024} is its \emph{mixed} attention pattern, which differs from both standard causal language model attention and standard DiT-style fully bidirectional attention \cite{peebles2023scalable}. Let $\mathbf{S}=[s_1,\ldots,s_N]$ denote the multimodal sequence, where each $s_i$ is either a text token or an image patch token belonging to one of the image blocks $B_1,\ldots,B_K$.
@@ -200,7 +205,7 @@ Qualitatively, the unified prompting format supports end-to-end editing, subject
 
 \subsection{Ablation Study: Effect of Guidance Scales}
 \label{sec:ablation}
-The dual classifier-free guidance defined in (\ref{eq:dualcfg}) introduces two interacting hyperparameters, $w_T$ and $w_I$, whose effect is not separately reported in the original paper. We sweep each axis on a held-out subset of $200$ EMU-Edit prompts and report CLIP-T (instruction following), CLIP-I (preservation of source content), and a blind human preference score (1--5 scale, $N{=}3$ raters). Bold marks the value used in our default configuration; \emph{italic} marks the empirically best per-column value.
+The dual classifier-free guidance defined in (\ref{eq:dualcfg}) introduces two interacting hyperparameters, $w_T$ and $w_I$, whose effect is not separately reported in the original paper. We sweep each axis on a held-out subset of $200$ EMU-Edit prompts and report CLIP-T (instruction following), CLIP-I (preservation of source content), and a blind human preference score. Human scores are collected from $N{=}3$ independent blind raters on a $1$--$5$ Likert scale, where $1$ denotes a poor edit that fails to satisfy the instruction, $3$ denotes an acceptable but imperfect edit, and $5$ denotes a clearly preferred result with strong instruction following and faithful source preservation. We report the arithmetic mean across raters; because the rubric is ordinal and the panel is small, we do not compute Cohen's kappa in the main table. Bold marks the value used in our default configuration; \emph{italic} marks the empirically best per-column value.
 
 \begin{table}[htbp]
 \caption{Ablation on Classifier-Free Guidance Scales (EMU-Edit, $200$ prompts). Higher is better.}
@@ -223,7 +228,7 @@ $w_T$ & $w_I$ & CLIP-T & CLIP-I & Human \\
 \end{tabular}
 \end{table}
 
-Three observations emerge. (1) Increasing $w_T$ monotonically strengthens instruction following up to $w_T{\approx}4$, after which CLIP-I and human preference fall sharply --- a familiar over-guidance regime where outputs become saturated and lose source fidelity. (2) Increasing $w_I$ tightens preservation of the source image, but excessive values ($w_I{\geq}2.5$) cause the model to under-edit, ignoring the textual instruction. (3) The default configuration $(w_T,w_I)=(2.5,1.6)$ from \cite{omnigen2024} sits near the human-preference optimum, suggesting that the published settings already balance the two axes well; minor gains are possible by raising $w_I$ to $2.0$ when source preservation is critical (e.g., identity-preserving edits).
+Three observations emerge. (1) Increasing $w_T$ monotonically strengthens instruction following up to $w_T{\approx}4$, after which CLIP-I and human preference fall sharply --- a familiar over-guidance regime where outputs become saturated and lose source fidelity. (2) Increasing $w_I$ tightens preservation of the source image, but excessive values ($w_I{\geq}2.5$) cause the model to under-edit, ignoring the textual instruction. This is not merely a surface-level artifact: in Eq.~(\ref{eq:dualcfg}), the image-conditioned residual $v_\theta(\mathbf{x}_t,c_T,c_I)-v_\theta(\mathbf{x}_t,c_T,\varnothing)$ is scaled so strongly that it overwhelms the text-conditioned direction, and the resulting velocity field stays too close to $v_\theta(\mathbf{x}_t,c_T,c_I)$. The ODE trajectory is therefore pulled back toward the source-image manifold, making the sampler preserve the input almost verbatim instead of moving far enough toward the textual target. (3) The default configuration $(w_T,w_I)=(2.5,1.6)$ from \cite{omnigen2024} sits near the human-preference optimum, suggesting that the published settings already balance the two axes well; minor gains are possible by raising $w_I$ to $2.0$ when source preservation is critical (e.g., identity-preserving edits).
 
 \subsection{Computational Efficiency}
 Table~\ref{tab:efficiency} reports peak GPU memory and end-to-end latency for a single $1024\times 1024$ image at $50$ steps on one A100 80\,GB GPU. OmniGen's unified backbone removes the orchestration overhead of a multi-model pipeline (e.g., SDXL\,+\,ControlNet\,+\,IP-Adapter), but its 3.8B-parameter Phi-3 transformer is heavier than a single SDXL U-Net, so per-image latency is higher than SDXL alone.
